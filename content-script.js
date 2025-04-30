@@ -5,6 +5,7 @@ console.log('Search Result Blocker content script loaded.');
 let blockedWords = [];
 let filterMode = 'hide'; // 'hide' or 'highlight'
 let isEnabled = true;
+let redirectRules = []; // To store redirect rules {keyword: '...', url: '...'}
 
 // Function to escape special characters for regex
 function escapeRegex(string) {
@@ -112,28 +113,156 @@ function scanAndFilter() {
 
 // --- Debounced Scanning ---
 
+// Function to escape special characters for regex (already exists)
+// function escapeRegex(string) { ... }
+
+// Function to extract search query from URL
+function getSearchQuery() {
+    const urlParams = new URLSearchParams(window.location.search);
+    let query = '';
+    // Add more search engines as needed
+    if (window.location.hostname.includes('google')) {
+        query = urlParams.get('q');
+    } else if (window.location.hostname.includes('bing')) {
+        query = urlParams.get('q');
+    } else if (window.location.hostname.includes('duckduckgo')) {
+        query = urlParams.get('q');
+    }
+    // Add other search engine parameter checks here (e.g., 'p' for Yahoo)
+    return query ? query.trim().toLowerCase() : null;
+}
+
+// Function to check for redirects
+function checkForRedirects(rules, query) {
+    if (!query || !rules || rules.length === 0) {
+        return false; // No query or no rules
+    }
+
+    for (const rule of rules) {
+        if (!rule.keyword || !rule.url) continue; // Skip invalid rules
+        // Simple case-insensitive keyword check (checks if the query *contains* the keyword)
+        if (query.includes(rule.keyword.toLowerCase())) {
+            console.log(`Redirecting: Found keyword "${rule.keyword}" in query "${query}". Redirecting to ${rule.url}`);
+            window.location.href = rule.url; // Perform the redirect
+            return true; // Redirect initiated
+        }
+    }
+    return false; // No matching redirect rule found
+}
+
+// Function to revert all visual changes (hiding/highlighting)
+function revertAllChanges() {
+    console.log('Reverting visual changes...');
+    document.querySelectorAll('.search-blocker-hidden, .search-blocker-highlight').forEach(el => {
+        el.classList.remove('search-blocker-hidden', 'search-blocker-highlight');
+        if (el.dataset.originalDisplay) {
+            el.style.display = el.dataset.originalDisplay;
+            delete el.dataset.originalDisplay;
+        }
+    });
+    // Also remove processed markers if necessary
+    document.querySelectorAll('.search-blocker-processed').forEach(el => el.classList.remove('search-blocker-processed'));
+}
+
 // --- Load Initial Settings & Run --- 
 function loadSettingsAndRun() {
-  chrome.storage.sync.get(['blockedWords', 'filterMode', 'isEnabled'], (result) => {
+  chrome.storage.sync.get(['blockedWords', 'filterMode', 'isEnabled', 'redirectRules'], (result) => {
     blockedWords = result.blockedWords || [];
     filterMode = result.filterMode || 'hide';
     isEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
-    console.log('Initial settings loaded:', { blockedWords, filterMode, isEnabled });
-    debouncedScan(); // Initial scan
+    redirectRules = result.redirectRules || []; // Load redirect rules
+    console.log('Initial settings loaded:', { blockedWords, filterMode, isEnabled, redirectRules });
+
+    // Check for redirects FIRST if enabled
+    if (isEnabled) {
+        const currentQuery = getSearchQuery();
+        if (checkForRedirects(redirectRules, currentQuery)) {
+            return; // Stop further processing if redirected
+        }
+    }
+
+    // If not redirected, proceed with blocking/highlighting or reverting
+    if (isEnabled) {
+        console.log('Filtering enabled, running initial scan.');
+        debouncedScan(); // Initial scan for blocking/highlighting
+        // Observer should already be running or will be started if needed
+    } else {
+        console.log('Filtering disabled, reverting changes.');
+        revertAllChanges(); // Ensure changes are reverted if disabled
+        // Observer should be disconnected by the storage listener
+    }
   });
 }
 
-// --- Listen for Messages from Service Worker --- 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Message received in content script:', request);
-  if (request.action === 'settingsChanged') {
-    console.log('Settings changed, reloading and re-scanning...');
-    loadSettingsAndRun(); // Reload settings and re-scan
-    sendResponse({ status: 'Settings received and scan triggered' });
-  } else {
-    sendResponse({ status: 'Unknown action' });
+// --- Listen for Storage Changes --- 
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'sync') {
+    let needsRescan = false;
+    let needsRevert = false;
+    let needsObserverRestart = false;
+    const oldIsEnabled = isEnabled; // Store previous state
+
+    console.log('Storage changed:', changes);
+
+    if (changes.blockedWords) {
+      blockedWords = changes.blockedWords.newValue || [];
+      if (isEnabled) needsRescan = true;
+    }
+    if (changes.filterMode) {
+      filterMode = changes.filterMode.newValue || 'hide';
+      if (isEnabled) {
+          // If mode changed, revert old highlights/hides before rescanning
+          revertAllChanges(); 
+          needsRescan = true;
+      }
+    }
+    if (changes.redirectRules) {
+        redirectRules = changes.redirectRules.newValue || [];
+        // Redirect check happens on next page load/search, not immediately needed here
+        // unless isEnabled was just turned on.
+    }
+    if (changes.isEnabled) {
+      isEnabled = changes.isEnabled.newValue !== undefined ? changes.isEnabled.newValue : true;
+      console.log(`isEnabled changed from ${oldIsEnabled} to ${isEnabled}`);
+      if (isEnabled && !oldIsEnabled) {
+          // --- Enabling --- 
+          console.log('Extension enabled. Checking redirects and starting scan/observer.');
+          // Check redirects immediately upon enabling
+          const currentQuery = getSearchQuery();
+          if (checkForRedirects(redirectRules, currentQuery)) {
+              return; // Stop if redirected
+          }
+          needsRescan = true;
+          needsObserverRestart = true; // Ensure observer is running
+      } else if (!isEnabled && oldIsEnabled) {
+          // --- Disabling --- 
+          console.log('Extension disabled. Reverting changes and stopping observer.');
+          needsRevert = true;
+          needsObserverRestart = true; // Ensure observer is stopped
+          needsRescan = false; // No scan needed if disabled
+      }
+    }
+
+    // --- Apply Changes --- 
+    if (needsRevert) {
+        revertAllChanges();
+    }
+    if (needsRescan && isEnabled) {
+        console.log('Settings changed, rescanning...');
+        debouncedScan();
+    }
+    if (needsObserverRestart) {
+        if (isEnabled) {
+            console.log('Ensuring MutationObserver is active.');
+            observer.observe(targetNode, config); // Ensure it's observing
+        } else {
+            console.log('Disconnecting MutationObserver.');
+            observer.disconnect();
+        }
+    }
+
+    console.log('Updated settings:', { blockedWords, filterMode, isEnabled, redirectRules });
   }
-  return true; // Keep the message channel open for asynchronous response
 });
 
 // Debounced version of the scan function
@@ -173,9 +302,8 @@ const callback = function(mutationsList, observer) {
 const observer = new MutationObserver(callback);
 
 // Start observing the target node for configured mutations
-// We might want to start observing only after the initial load/scan is done
-// or conditionally based on the site.
-observer.observe(targetNode, config);
+// Observation is now controlled by loadSettingsAndRun and the storage listener
+// observer.observe(targetNode, config); // Don't start automatically here
 
 // Optional: Disconnect observer when the script unloads (though content scripts usually persist)
 // window.addEventListener('unload', () => observer.disconnect());

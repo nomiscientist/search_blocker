@@ -3,15 +3,22 @@
 // Listener for extension installation or update
 chrome.runtime.onInstalled.addListener(() => {
   // Initialize default settings if they don't exist
-  chrome.storage.sync.get(['blockedWords', 'filterMode', 'isEnabled'], (result) => {
+  chrome.storage.sync.get(['blockedWords', 'filterMode', 'isEnabled', 'redirectRules'], (result) => {
+    const defaults = {};
     if (result.blockedWords === undefined) {
-      chrome.storage.sync.set({ blockedWords: [] });
+      defaults.blockedWords = [];
     }
     if (result.filterMode === undefined) {
-      chrome.storage.sync.set({ filterMode: 'hide' }); // 'hide' or 'highlight'
+      defaults.filterMode = 'hide'; // 'hide' or 'highlight'
     }
     if (result.isEnabled === undefined) {
-      chrome.storage.sync.set({ isEnabled: true });
+      defaults.isEnabled = true;
+    }
+    if (result.redirectRules === undefined) {
+      defaults.redirectRules = []; // Initialize redirect rules
+    }
+    if (Object.keys(defaults).length > 0) {
+        chrome.storage.sync.set(defaults);
     }
   });
   console.log('Search Result Blocker installed/updated.');
