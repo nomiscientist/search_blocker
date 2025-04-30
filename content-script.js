@@ -110,12 +110,7 @@ function scanAndFilter() {
   }, 100); 
 }
 
-// --- Debounced Scanning --- 
-let debounceTimer;
-function debouncedScan() {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(scanAndFilter, 300); // Adjust delay as needed
-}
+// --- Debounced Scanning ---
 
 // --- Load Initial Settings & Run --- 
 function loadSettingsAndRun() {
