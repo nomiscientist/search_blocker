@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Search Blocker Settings</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      width: 300px;
+      padding: 10px;
+    }
+    #blockedWordsList {
+      list-style: none;
+      padding: 0;
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      margin-top: 5px;
+      margin-bottom: 10px;
+    }
+    #blockedWordsList li {
+      padding: 5px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #blockedWordsList li:last-child {
+      border-bottom: none;
+    }
+    .remove-word {
+      cursor: pointer;
+      color: red;
+      font-weight: bold;
+      padding: 0 5px;
+    }
+    label {
+        display: block;
+        margin-top: 10px;
+    }
+    input[type="text"] {
+        width: calc(100% - 22px); /* Adjust for padding/border */
+        padding: 5px;
+        margin-bottom: 5px;
+    }
+    button {
+        padding: 5px 10px;
+        margin-right: 5px;
+    }
+    .settings-row {
+        margin-top: 15px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <h3>Search Result Blocker</h3>
+
+  <label for="newWord">Add word/phrase:</label>
+  <input type="text" id="newWord" placeholder="Enter word or phrase">
+  <button id="addWordBtn">Add</button>
+
+  <label>Blocked Words:</label>
+  <ul id="blockedWordsList">
+    <!-- Blocked words will be listed here -->
+    <li>Loading...</li>
+  </ul>
+
+  <div class="settings-row">
+      <label for="filterMode">Filter Mode:</label>
+      <select id="filterMode">
+          <option value="hide">Hide Results</option>
+          <option value="highlight">Highlight Results</option>
+      </select>
+  </div>
+
+  <div class="settings-row">
+      <label for="enableSwitch">Enable Filtering:</label>
+      <input type="checkbox" id="enableSwitch">
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
